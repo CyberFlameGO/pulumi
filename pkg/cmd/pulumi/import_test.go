@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -215,4 +216,99 @@ func TestParseImportFileSameNameDifferentType(t *testing.T) {
 		assert.False(t, exists, "name %s should not have been seen already", imp.Name)
 		resourceNames[imp.Name] = struct{}{}
 	}
+}
+
+func TestParseImportFileNoClash(t *testing.T) {
+	t.Parallel()
+	f := importFile{
+		Resources: []importSpec{
+			{
+				Name:    "thing",
+				ID:      "thing",
+				Type:    "foo:bar:b",
+				Version: "0.0.0",
+			},
+			{
+				Name:    "thing",
+				ID:      "thing",
+				Type:    "foo:bar:a",
+				Version: "0.0.0",
+			},
+			{
+				Name:    "thing1",
+				ID:      "thing",
+				Type:    "foo:bar:a",
+				Version: "0.0.0",
+			},
+		},
+	}
+	imports, _, err := parseImportFile(f, false)
+	assert.NoError(t, err)
+	resourceNames := map[tokens.QName]struct{}{}
+	for _, imp := range imports {
+		_, exists := resourceNames[imp.Name]
+		assert.False(t, exists, "name %s should not have been seen already", imp.Name)
+		resourceNames[imp.Name] = struct{}{}
+	}
+}
+
+func TestParseImportFileAmbiguousParent(t *testing.T) {
+	t.Parallel()
+	f := importFile{
+		Resources: []importSpec{
+			{
+				Name:    "res",
+				ID:      "res",
+				Type:    "foo:bar:bar",
+				Version: "0.0.0",
+			},
+			{
+				Name:    "res",
+				ID:      "res",
+				Type:    "foo:bar:baz",
+				Version: "0.0.0",
+			},
+			{
+				Name:    "res-2",
+				ID:      "res-2",
+				Type:    "foo:bar:a",
+				Parent:  "res",
+				Version: "0.0.0",
+			},
+		},
+	}
+	_, _, err := parseImportFile(f, false)
+	assert.Error(t, err)
+}
+
+func TestParseImportFileAmbiguousProvider(t *testing.T) {
+	t.Parallel()
+	f := importFile{
+		NameTable: map[string]resource.URN{
+			"res": "whatever",
+		},
+		Resources: []importSpec{
+			{
+				Name:    "res",
+				ID:      "res",
+				Type:    "foo:bar:bar",
+				Version: "0.0.0",
+			},
+			{
+				Name:    "res",
+				ID:      "res",
+				Type:    "foo:bar:baz",
+				Version: "0.0.0",
+			},
+			{
+				Name:     "res-2",
+				ID:       "res-2",
+				Type:     "foo:bar:a",
+				Provider: "res",
+				Version:  "0.0.0",
+			},
+		},
+	}
+	_, _, err := parseImportFile(f, false)
+	assert.Error(t, err)
 }
