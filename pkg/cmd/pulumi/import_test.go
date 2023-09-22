@@ -172,6 +172,67 @@ func TestParseImportFile_errors(t *testing.T) {
 				"the resource 'thing' for resource 'thing' of type 'foo:bar:bar' duplicate resource and type",
 			},
 		},
+		{
+			desc: "ambiguous parent",
+			give: importFile{
+				Resources: []importSpec{
+					{
+						Name:    "res",
+						ID:      "res",
+						Type:    "foo:bar:bar",
+						Version: "0.0.0",
+					},
+					{
+						Name:    "res",
+						ID:      "res",
+						Type:    "foo:bar:baz",
+						Version: "0.0.0",
+					},
+					{
+						Name:    "res-2",
+						ID:      "res-2",
+						Type:    "foo:bar:a",
+						Parent:  "res",
+						Version: "0.0.0",
+					},
+				},
+			},
+			wantErrs: []string{
+				"the resource 'res-2' for resource 'res-2' of type 'foo:bar:a' has an ambiguous parent",
+			},
+		},
+		{
+			desc: "ambiguous provider",
+			give: importFile{
+				NameTable: map[string]resource.URN{
+					"res": "whatever",
+				},
+				Resources: []importSpec{
+					{
+						Name:    "res",
+						ID:      "res",
+						Type:    "foo:bar:bar",
+						Version: "0.0.0",
+					},
+					{
+						Name:    "res",
+						ID:      "res",
+						Type:    "foo:bar:baz",
+						Version: "0.0.0",
+					},
+					{
+						Name:     "res-2",
+						ID:       "res-2",
+						Type:     "foo:bar:a",
+						Provider: "res",
+						Version:  "0.0.0",
+					},
+				},
+			},
+			wantErrs: []string{
+				"the resource 'res-2' for resource 'res-2' of type 'foo:bar:a' has an ambiguous provider",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -250,65 +311,4 @@ func TestParseImportFileNoClash(t *testing.T) {
 		assert.False(t, exists, "name %s should not have been seen already", imp.Name)
 		resourceNames[imp.Name] = struct{}{}
 	}
-}
-
-func TestParseImportFileAmbiguousParent(t *testing.T) {
-	t.Parallel()
-	f := importFile{
-		Resources: []importSpec{
-			{
-				Name:    "res",
-				ID:      "res",
-				Type:    "foo:bar:bar",
-				Version: "0.0.0",
-			},
-			{
-				Name:    "res",
-				ID:      "res",
-				Type:    "foo:bar:baz",
-				Version: "0.0.0",
-			},
-			{
-				Name:    "res-2",
-				ID:      "res-2",
-				Type:    "foo:bar:a",
-				Parent:  "res",
-				Version: "0.0.0",
-			},
-		},
-	}
-	_, _, err := parseImportFile(f, false)
-	assert.Error(t, err)
-}
-
-func TestParseImportFileAmbiguousProvider(t *testing.T) {
-	t.Parallel()
-	f := importFile{
-		NameTable: map[string]resource.URN{
-			"res": "whatever",
-		},
-		Resources: []importSpec{
-			{
-				Name:    "res",
-				ID:      "res",
-				Type:    "foo:bar:bar",
-				Version: "0.0.0",
-			},
-			{
-				Name:    "res",
-				ID:      "res",
-				Type:    "foo:bar:baz",
-				Version: "0.0.0",
-			},
-			{
-				Name:     "res-2",
-				ID:       "res-2",
-				Type:     "foo:bar:a",
-				Provider: "res",
-				Version:  "0.0.0",
-			},
-		},
-	}
-	_, _, err := parseImportFile(f, false)
-	assert.Error(t, err)
 }

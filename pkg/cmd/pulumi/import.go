@@ -212,10 +212,21 @@ func parseImportFile(f importFile, protectResources bool) ([]deploy.Import, impo
 		errs = multierror.Append(errs, fmt.Errorf(format, args...))
 	}
 
-	type resourceName string
-	type resourceType string
 	// Track duplicate resource names and their types.
-	resourceNameMap := map[resourceName]map[resourceType]struct{}{}
+	resourceNameMap := map[tokens.QName]tokens.Type{}
+	duplicateIndexes := map[int]struct{}{}
+	duplicateNames := map[tokens.QName]struct{}{}
+	for i, spec := range f.Resources {
+		if existingType, exists := resourceNameMap[spec.Name]; !exists {
+			resourceNameMap[spec.Name] = spec.Type
+		} else if existingType == spec.Type {
+			pusherrf("the resource '%v' for %v duplicate resource and type",
+				spec.Name, describeResource(i, spec))
+		} else {
+			duplicateIndexes[i] = struct{}{}
+			duplicateNames[spec.Name] = struct{}{}
+		}
+	}
 
 	imports := make([]deploy.Import, len(f.Resources))
 	for i, spec := range f.Resources {
@@ -229,31 +240,24 @@ func parseImportFile(f importFile, protectResources bool) ([]deploy.Import, impo
 			pusherrf("%v has no ID", describeResource(i, spec))
 		}
 
-		var name tokens.QName
-		// Handle duplicate resource names.
-		if resourceTypeSet, seen := resourceNameMap[resourceName(spec.Name)]; seen {
-			// Resource Name has already been seen.
-			if _, alreadyExists := resourceTypeSet[resourceType(spec.Type)]; alreadyExists {
-				pusherrf("the resource '%v' for %v duplicate resource and type",
-					spec.Name, describeResource(i, spec))
+		// Make spec.Name unique.
+		name := spec.Name
+		_, isDuplicate := duplicateIndexes[i]
+		if isDuplicate {
+			for i := 1; ; i++ {
+				if _, exists := resourceNameMap[name]; !exists {
+					break
+				}
+				name = tokens.QName(fmt.Sprintf("%s_%d", spec.Name, i))
 			}
-
-			// Store the current number and mutate the set to track the newly seen type.
-			ident := len(resourceTypeSet)
-			resourceTypeSet[resourceType(spec.Type)] = struct{}{}
-
-			// Suffix resource with number to make it unique.
-			name = tokens.QName(fmt.Sprintf("%s%d", spec.Name, ident))
-		} else {
-			resourceNameMap[resourceName(spec.Name)] = map[resourceType]struct{}{
-				resourceType(spec.Type): {},
-			}
-			name = spec.Name
 		}
+		spec.Name = name
+		// Track that the resource name is now taken.
+		resourceNameMap[spec.Name] = spec.Type
 
 		imp := deploy.Import{
 			Type:              spec.Type,
-			Name:              name,
+			Name:              spec.Name,
 			ID:                spec.ID,
 			Protect:           protectResources,
 			Properties:        spec.Properties,
@@ -261,6 +265,10 @@ func parseImportFile(f importFile, protectResources bool) ([]deploy.Import, impo
 		}
 
 		if spec.Parent != "" {
+			if _, isAmbiguous := duplicateNames[tokens.QName(spec.Parent)]; isAmbiguous {
+				pusherrf("the resource '%v' for %v has an ambiguous parent",
+					spec.Name, describeResource(i, spec))
+			}
 			urn, ok := f.NameTable[spec.Parent]
 			if !ok {
 				pusherrf("the parent '%v' for %v has no name",
@@ -271,6 +279,10 @@ func parseImportFile(f importFile, protectResources bool) ([]deploy.Import, impo
 		}
 
 		if spec.Provider != "" {
+			if _, isAmbiguous := duplicateNames[tokens.QName(spec.Provider)]; isAmbiguous {
+				pusherrf("the resource '%v' for %v has an ambiguous provider",
+					spec.Name, describeResource(i, spec))
+			}
 			urn, ok := f.NameTable[spec.Provider]
 			if !ok {
 				pusherrf("the provider '%v' for %v has no name",
